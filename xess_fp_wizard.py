@@ -29,7 +29,7 @@ import FootprintWizardDrawingAids
 import PadArray as PA
 
 from math import ceil, floor, sqrt
-
+import os.path
 
 def calc_solderpaste_margin(w,h,fill):
     '''Calculate how far in to pull the paste mask to get a certain fill percentage.'''
@@ -405,7 +405,7 @@ class XessPeriphPckgWizard(XessFpWizard):
 class XessBgaPckgWizard(XessFpWizard):
 
     def GetName(self):
-        return "Area-Pin Chips"
+        return "Area-Pin Chips v0.1"
 
     def GetDescription(self):
         return "Ball Grid Arrays"
@@ -424,6 +424,7 @@ class XessBgaPckgWizard(XessFpWizard):
     outline_key = 'Silkscreen Outline (%)'
     bevel_key = 'Bevel (%)'
     add_index_key = 'Add index (Y/N)'
+    exclude_file = 'Excluded pad list file'
 
     def GenerateParameterList(self):
         self.AddParam("Package", self.n_pads_per_row_key, self.uNatural, 16)
@@ -440,6 +441,7 @@ class XessBgaPckgWizard(XessFpWizard):
         self.AddParam("Misc", self.outline_key, self.uNatural, 100)
         self.AddParam("Misc", self.bevel_key, self.uNatural, 7)
         self.AddParam("Misc", self.add_index_key, self.uBool, False)
+        self.AddParam("Misc", self.exclude_file, self.uString, '')
 
     def CheckParameters(self):
 
@@ -471,6 +473,7 @@ class XessBgaPckgWizard(XessFpWizard):
         outline = misc['*' + self.outline_key] / 100.0
         bevel = misc['*' + self.bevel_key] / 100.0
         add_index = misc['*' + self.add_index_key]
+        excludefile = misc['*' + self.exclude_file]
 
         pad = PA.PadMaker(self.module).SMDPad(pad_width, pad_length, shape=pad_shape)
         pad.SetLayerSet(pad.SMDMask())
@@ -483,11 +486,38 @@ class XessBgaPckgWizard(XessFpWizard):
             def NamingFunction(self, n_x, n_y):
                 return "%s%d" % (
                     self.AlphaNameFromNumber(n_y + 1, alphabet="ABCDEFGHJKLMNPRTUVWY"),
-                    n_x + 1)
+		     n_x + 1)
+
+            #relocate the pad and add it as many times as we need
+            def BGAAddPadsToModule(self, dc, efilename):
+
+                pin1posX = self.centre.x - self.px * (self.nx - 1) / 2
+                pin1posY = self.centre.y - self.py * (self.ny - 1) / 2
+
+                exclude_list=[]
+                if efilename != '':
+                    if os.path.isfile(efilename):
+                        try:
+                             with open(efilename, 'r') as myfile:
+                                 line1=myfile.read().replace('\n', ',')
+                             line1=''.join(line1.split()) 
+                             exclude_list = line1.split(",")
+                        except:
+                             exclude_list=[]
+                for x in range(0, self.nx):
+                            posX = pin1posX + (x * self.px)
+
+                            for y in range(self.ny):
+                                posY = pin1posY + (self.py * y)
+                                pos = dc.TransformPoint(posX, posY)
+                                pad = self.GetPad(x == 0 and y == 0, pos)
+                                pad.SetPadName(self.GetName(x,y))
+                                if pad.GetPadName() not in exclude_list:
+                                 self.AddPad(pad)
                     
         # Draw pads.
         array = BGAPadGridArray(pad, n_pads_per_col, n_pads_per_row, pad_col_pitch, pad_row_pitch)
-        array.AddPadsToModule(self.draw)
+        array.BGAAddPadsToModule(self.draw, excludefile)
 
         # Draw outline.
         h = total_height / 2.0 * outline
